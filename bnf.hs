@@ -6,10 +6,10 @@ import Data.Generics
 import Data.List.NonEmpty
 import Text.Parsec
 
-data BNF = BNF (NonEmpty Production)
+data BNF = BNF (NonEmpty BNFProduction)
     deriving (Eq, Show, Typeable, Data)
 
-data Production = Production String (NonEmpty BNFExpr)
+data BNFProduction = BNFProduction String (NonEmpty BNFExpr)
     deriving (Eq, Show, Typeable, Data)
 
 data BNFExpr = BNFExpr (NonEmpty BNFBase)
@@ -20,23 +20,44 @@ data BNFBase = NonTerminal String
     deriving (Eq, Show, Typeable, Data)
 
 bnf :: Stream s m Char => ParsecT s u m BNF
-bnf = BNF <$> parsecMap fromList (many1 production)
+bnf = BNF <$> parsecMap fromList (spaces >> production `sepBy1` spaces)
 
-production :: Stream s m Char => ParsecT s u m Production
-production = Production <$> anyBetween (char '<') (char '>') <* (spaces >> string "::=" >> spaces)
-                        <*> parsecMap fromList (bnfExpr `sepBy1` (spaces >> char '|' >> spaces))
+production :: Stream s m Char => ParsecT s u m BNFProduction
+production = BNFProduction <$> anyBetweenAngle <*
+                               (spaces >> string "::=" >> spaces)
+                           <*> parsecMap fromList
+                               (bnfExpr `sepBy1` (spaces >> char '|' >> spaces))
 
 bnfExpr :: Stream s m Char => ParsecT s u m BNFExpr
-bnfExpr = BNFExpr <$> parsecMap fromList ((nonTerminal <|> terminal) `sepEndBy1` spaces)
+bnfExpr = BNFExpr <$> parsecMap fromList
+                      ((nonTerminal <|> terminal) `sepEndBy1` spaces)
 
 nonTerminal :: Stream s m Char => ParsecT s u m BNFBase
-nonTerminal = NonTerminal <$> anyBetween (char '<') (char '>')
+nonTerminal = NonTerminal <$> anyBetweenAngle
 
 terminal :: Stream s m Char => ParsecT s u m BNFBase
-terminal = Terminal <$> anyBetween (char '"') (char '"')
+terminal = Terminal <$> anyBetweenDoubleQ
+
+anyBetweenAngle :: Stream s m Char => ParsecT s u m String
+anyBetweenAngle = anyBetween (char '<') (char '>')
+
+anyBetweenDoubleQ :: Stream s m Char => ParsecT s u m String
+anyBetweenDoubleQ = anyBetween (char '"') (char '"')
 
 anyBetween :: Stream s m Char
            => ParsecT s u m open
            -> ParsecT s u m close
            -> ParsecT s u m String
 anyBetween open close = open >> manyTill anyChar (try close)
+
+postalAddress :: String
+postalAddress = Prelude.unlines
+    [ "<postal-address> ::= <name-part> <street-address> <zip-part>"
+    , "<name-part> ::= <personal-part> <last-name> <opt-suffix-part> <EOL>"
+    , "            | <personal-part> <name-part>"
+    , "<personal-part> ::= <first-name> | <initial> \".\""
+    , "<street-address> ::= <house-num> <street-name> <opt-apt-num> <EOL>"
+    , "<zip-part> ::= <town-name> \",\" <state-code> <ZIP-code> <EOL>"
+    , "<opt-suffix-part> ::= \"Sr.\" | \"Jr.\" | <roman-numeral> | \"\""
+    , "<opt-apt-num> ::= <apt-num> | \"\""
+    ]
